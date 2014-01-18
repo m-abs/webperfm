@@ -1,12 +1,12 @@
 {
-	"name": "owa-perftest",
+	"name": "webperfm",
 	"version": "0.0.1",
 	"private": true,
 	"scripts": {
 		"start": "node app"
 	},
 	"dependencies": {
-		"strftime" : "*",
+		"crawler" : "*",
 		"nconf" : "*",
 		"mysql" : "*"
 	}
