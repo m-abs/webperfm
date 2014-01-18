@@ -1,4 +1,4 @@
-== Real life performance test ==
+# Real life performance test
 
 This nodejs application uses real life data from Open Web Analytic
 to run performance test on a website.
@@ -13,7 +13,7 @@ the site like the user did, with the same interval.
 
 This is still just at the proof of concept stage.
 
-=== TODO ===
+## TODO
 - More reliable way to run many sessions at once. Right now we fork cpu * 20 workers that each run a single session at one time.
 - Select site, right on it will run on all sites in the database.
 - It would be really nice, if the crawler could handle caching properly, e.g. E-Tag, expires and so on.
