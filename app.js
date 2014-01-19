@@ -8,6 +8,7 @@
 
 	if ( cluster.isMaster ) {
 		var
+			debugging = false,
 			nconf = require( 'nconf' ),
 			mysql = require( 'mysql' ),
 			sessions = {},
@@ -65,9 +66,9 @@
 
 		var workers = ( function( ) {
 				var res = [],
-					len = require( 'os' ).cpus( ).length * 10;
-
-				for ( var i = 0; i < len; i += 1 ) {
+					len = require( 'os' ).cpus( ).length * 10,
+					i = 0;
+				for ( ; i < len; i += 1 ) {
 					var worker = cluster.fork( );
 
 					worker.on( 'message', workerRequestNewSession );
@@ -152,7 +153,9 @@
 			'maxConnections' : 100,
 			'callback' : function( error, result, $ ) {
 				var cur_time = new Date( );
-				// console.log( result.uri, cur_time - start );
+				if ( debugging ) {
+					console.log( result.uri, cur_time - start );
+				}
 				if ( error ) {
 					console.log( worker.id, 'error', error, result );
 				} else if ( $ ) {
@@ -174,6 +177,8 @@
 							if ( !media || media === 'all' || media === 'screen' ) {
 								queue( $el.attr( 'href' ) );
 							}
+						} else if ( [ 'icon', 'apple-touch-icon' ].indexOf( rel ) !== -1 ) {
+								queue( $el.attr( 'href' ) );
 						}
 					} );
 
