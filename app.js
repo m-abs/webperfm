@@ -21,292 +21,342 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 /*jshint node: true */
 
 /*global console: false */
-( function( ) {
-	'use strict';
+( function () {
+    'use strict';
 
-	var cluster = require( 'cluster' );
+    var cluster = require( 'cluster' ),
+        debugging = true;
 
-	if ( cluster.isMaster ) {
-		var
-			debugging = false,
-			nconf = require( 'nconf' ),
-			mysql = require( 'mysql' ),
-			sessions = {},
-			lastSession,
-			connection;
-	
-		// Load config
-		nconf
-			.argv( )
-			.env( )
-			.file( 'config.json' );
-	
-		nconf.defaults( {
-			'host' : '127.0.0.1',
-			'port' : 3306
-		} );
-	
-		var required_config = [ 'dbname', 'dbusername', 'dbpassword', 'dbhostname' ];
-		required_config.forEach( function( value ) {
-			console.assert( nconf.get( value ), value + ' is missing from the config, either add it to config.json, the environment or the argv' );
-		} );
+    if ( cluster.isMaster ) {
+        var
+        nconf = require( 'nconf' ),
+            mysql = require( 'mysql' ),
+            sessions = {},
+            lastSession,
+            connection;
 
-		var workerRequestNewSession = function( msg ) {
-			if ( msg === 'next' ) {
-				console.log( this.id, 'requested new session to work with' );
-				var currentSessionId,
-						currentSession;
-				if ( !lastSession ) {
-					currentSessionId = Object.keys( sessions )[0];
-				} else {
-					var session_ids = Object.keys( sessions ),
-						idx = session_ids.indexOf( lastSession ) + 1;
+        // Load config
+        nconf
+            .argv()
+            .env()
+            .file( 'config.json' );
 
-					if ( idx >= session_ids.length ) {
-						idx = 0;
-					}
+        nconf.defaults( {
+            'dbhostname': '127.0.0.1',
+            'dbport': 3306
+        } );
 
-					currentSessionId = session_ids[ idx ];
-				}
+        var required_config = [ 'dbname', 'dbusername', 'dbpassword', 'dbhostname' ];
+        required_config.forEach( function ( value ) {
+            console.assert( nconf.get( value ), value + ' is missing from the config, either add it to config.json, the environment or the argv' );
+        } );
 
-				currentSession = sessions[ currentSessionId ];
+        var workerRequestNewSession = function ( msg ) {
+            if ( msg === 'next' ) {
+                console.log( this.id, 'requested new session to work with' );
 
-				if ( currentSession.reruns === undefined ) {
-					currentSession.reruns = 0;
-				}
+                var currentSessionId,
+                    currentSession;
+                if ( !lastSession ) {
+                    currentSessionId = Object.keys( sessions )[ 0 ];
+                } else {
+                    var session_ids = Object.keys( sessions ),
+                        idx = session_ids.indexOf( lastSession ) + 1;
 
-				currentSession.reruns += 1;
+                    if ( idx >= session_ids.length ) {
+                        idx = 0;
+                    }
 
-				this.send( currentSession );
+                    currentSessionId = session_ids[ idx ];
+                }
 
-				lastSession = currentSessionId;
-				console.log( currentSessionId );
-			}
-		};
+                currentSession = sessions[ currentSessionId ];
 
-		var workers = ( function( ) {
-				var res = [],
-					len = require( 'os' ).cpus( ).length * 10,
-					i = 0;
-				for ( ; i < len; i += 1 ) {
-					var worker = cluster.fork( );
+                if ( this.reruns === undefined ) {
+                    this.reruns = 0;
+                }
 
-					worker.on( 'message', workerRequestNewSession );
+                this.reruns += 1;
 
-					res.push( worker );
-				}
+                console.log( this.id, this.reruns );
 
-				return res;
-			} )( );
-	
-		connection = mysql.createConnection( {
-			'host'     : nconf.get( 'dbhostname' ),
-			'user'     : nconf.get( 'dbusername' ),
-			'database' : nconf.get( 'dbname'     ),
-			'password' : nconf.get( 'dbpassword' ),
-			'port'     : nconf.get( 'dbport'     )
-		} );
-	
-		connection.connect( function( ) {
-			connection.query( 'SELECT * FROM owa_domstream JOIN owa_document ON owa_document.id = owa_domstream.document_id JOIN owa_site ON owa_site.site_id = owa_domstream.site_id JOIN owa_ua ON owa_ua.id = owa_domstream.ua_id ORDER BY owa_domstream.timestamp', function( err, rows ) {
-	
-				if ( !err ) {
-					rows.forEach( function( row ) {
-						var session = row.session_id;
-						if ( !sessions[ session ] ) {
-							sessions[ session ] = {
-								'session' : session,
-								'user_agent' : row.ua,
-								'pages' : []
-							};
-						}
-	
-						sessions[ session ].pages.push( {
-							'page_url' : row.page_url,
-							'uri' : row.uri,
-							'domain' : row.domain,
-							'timestamp' : row.timestamp,
-							'date' : new Date( row.timestamp * 1000 )
-						} );
-					} );
+                if ( this.reruns < 10000 ) {
+                    this.send( currentSession );
 
-					workers.forEach( function( worker ) {
-						console.log( arguments[1] );
-						worker.send( 'ready' );
-					} );
-				} else {
-					console.log( err );
-				}
-	
-				connection.end( );
-			} );
-		} );
-	} else if ( cluster.isWorker ) {
-		var Crawler = require( 'crawler' ).Crawler,
-			worker = cluster.worker,
-			c,
-			doneUrls = {},
-			queue = function( url, allow_duplicates ) {
-				if ( !url ) {
-					return;
-				}
+                    lastSession = currentSessionId;
+                } else {
+                    this.exit( );
+                }
+            }
+        };
 
-				if ( url.substr( 0, 2 ) === '//' ) {
-					url = 'http:' + url;
-				}
+        var workers = ( function () {
+            var res = [],
+                len = require( 'os' )
+                    .cpus()
+                    .length * 10,
+                i = 0;
+            for ( ; i < len; i += 1 ) {
+                var worker = cluster.fork();
 
-				if ( doneUrls[ url ] && !allow_duplicates ) {
-					// console.log( url, 'already loaded' );
-					return;
-				}
+                worker.on( 'message', workerRequestNewSession );
 
-				// console.log( url );
-				c.queue( url );
+                res.push( worker );
+            }
+            return res;
+        } )();
 
-				doneUrls[ url ] = true;
-			},
-			queued = 0,
-			start = new Date( );
+        connection = mysql.createConnection( {
+            'host': nconf.get( 'dbhostname' ),
+            'user': nconf.get( 'dbusername' ),
+            'database': nconf.get( 'dbname' ),
+            'password': nconf.get( 'dbpassword' ),
+            'port': nconf.get( 'dbport' )
+        } );
 
-		c = new Crawler( {
-			'cache': true,
-			'maxConnections' : 100,
-			'callback' : function( error, result, $ ) {
-				var cur_time = new Date( );
-				if ( debugging ) {
-					console.log( result.uri, cur_time - start );
-				}
-				if ( error ) {
-					console.log( worker.id, 'error', error, result );
-				} else if ( $ ) {
-					$( 'script[src]' ).each( function( index, el ) {
-						var $el = $( el ),
-							src = $el.attr( 'src' );
-						if ( src ) {
-							queue( $el.attr( 'src' ) );
-						}
-					} );
+        connection.connect( function ( status ) {
+            if ( status ) {
+                console.log( status );
+                connection.end();
+                process.exit( 255 );
 
-					$( 'link[href]' ).each( function( index, el ) {
-						var $el = $( el ),
-							type = $el.attr( 'type' ),
-							media = $el.attr( 'media' ),
-							rel = $el.attr( 'rel' );
+                return;
+            }
 
-						if ( type === 'text/css' ) {
-							if ( !media || media === 'all' || media === 'screen' ) {
-								queue( $el.attr( 'href' ) );
-							}
-						} else if ( [ 'icon', 'apple-touch-icon' ].indexOf( rel ) !== -1 ) {
-								queue( $el.attr( 'href' ) );
-						}
-					} );
+            connection.query( 'SELECT * FROM owa_domstream JOIN owa_document ON owa_document.id = owa_domstream.document_id JOIN owa_site ON owa_site.site_id = owa_domstream.site_id JOIN owa_ua ON owa_ua.id = owa_domstream.ua_id ORDER BY owa_domstream.timestamp', function ( err, rows ) {
 
-					$( 'img[src]' ).each( function( index, el ) {
-						var $el = $( el ),
-							src = $el.attr( 'src' );
+                if ( !err ) {
+                    rows.forEach( function ( row ) {
+                        var session = row.session_id;
+                        if ( !sessions[ session ] ) {
+                            sessions[ session ] = {
+                                'session': session,
+                                'user_agent': row.ua,
+                                'pages': []
+                            };
+                        }
 
-						if ( src ) {
-							queue( $el.attr( 'src' ) );
-						}
-					} );
+                        sessions[ session ].pages.push( {
+                            'page_url': row.page_url,
+                            'uri': row.uri,
+                            'domain': row.domain,
+                            'timestamp': row.timestamp,
+                            'date': new Date( row.timestamp * 1000 )
+                        } );
+                    } );
 
-					if ( queued === 0 ) {
-						process.send( 'next' );
-					}
-				} else if ( ( ( result.headers && result.headers[ 'content-type' ] === 'text/css' ) ||  ( /\.css/ ).test( result.uri ) ) && result.body ) {
-					var body = result.body,
-						oldLength;
+                    workers.forEach( function ( worker ) {
+                        worker.send( 'ready' );
+                    } );
+                } else {
+                    console.log( err );
+                }
 
-					while ( oldLength !== body.length ) {
-						if ( !body ) {
-							break;
-						}
-						oldLength = body.length;
+                connection.end();
+            } );
+        } );
+    } else if ( cluster.isWorker ) {
+        var worker = cluster.worker,
+            runCrawler = function ( pages ) {
+                var Crawler = require( 'crawler' )
+                    .Crawler,
+                    c,
+                    loadNext = function () {
+                        var page = pages.shift();
 
-						var idx = body.indexOf( '/*' );
-						if ( idx !== -1 ) {
-							var idx2 = body.indexOf( '*/', idx );
-							if ( idx2 !== -1 ) {
-								body = body.substr( 0, idx ) + body.substr( idx2 + 1 );
-							} else {
-								break;
-							}
-						} else {
-							break;
-						}
-					}
+                        if ( !page ) {
+                            process.send( 'next' );
+                            c.pool.destroy( );
+                            c = undefined;
+                            Crawler = undefined;
+                        } else {
+                            setTimeout( function () {
+                                queue( page.url, true );
+                            }, page.delay * 1000 );
+                        }
+                    },
+                    doneUrls = {},
+                    queued = {},
+                    queue = function ( url, allow_duplicates ) {
+                        if ( !url ) {
+                            return;
+                        }
 
-					var matches = body.match( /url\(['"]?[^)'"]+['"]?\)/g );
-					if ( matches ) {
-						var relative_url = result.uri.replace( /\/[^\/]+$/, '' ) + '/',
-							base_url = result.request.uri.protocol + '//' + result.request.uri.host + ( result.request.uri.port != 80 ? ':' + result.request.uri.port : '' ) + '/';
+                        if ( url.substr( 0, 2 ) === '//' ) {
+                            url = 'http:' + url;
+                        }
 
-						matches.forEach( function( url ) {
-							url = url.substr( 4, url.length - 1 - 4 );
-							if ( /^['"]/.test( url ) ) {
-								url = url.substr( 1 );
-							}
-							if ( /['"]$/.test( url ) ) {
-								url = url.substr( 0, url.length - 1 );
-							}
+                        if ( doneUrls[ url ] && !allow_duplicates ) {
+                            // console.log( url, 'already loaded' );
+                            return;
+                        }
 
-							if ( url.substr( 0, 2 ) === '//' ) {
-								url = result.request.uri.protocol + url;
-							} else if ( url.substr( 0, 1 ) === '/' ) {
-								url = base_url + url;
-							} else if ( url.substr( 0, 4 ) !== 'http' ) {
-								url = relative_url + url;
-							}
+                        // console.log( url );
+                        c.queue( url );
 
-							queue( url );
-						} );
-					}
-				} else if ( result.headers && ( result.headers[ 'content-type' ] === 'application/javascript' || result.headers[ 'content-type' ] === 'application/x-javascript' ) ) {
-					// console.log( worker.id, result.uri, 'is a js-file' );
-				} else if ( result.headers && /image\/[a-z]+/.test( result.headers[ 'content-type' ] || '' ) ) {
-					// console.log( worker.id, result.uri, 'is a image-file' );
-				} else {
-					// console.log( worker.id, result.uri );
-				}
-			}
-		} );
+                        doneUrls[ url ] = true;
+                        queued[ url ] = true;
+                    },
+                    start = new Date();
 
-		process.on( 'message', function( msg ) {
-			if ( msg === 'ready' ) {
-				process.send( 'next' );
-			} else {
-				console.log( worker.id, 'got new session to work on' );
-				doneUrls = {};
-				var pages = msg.pages,
-					last_timestamp = pages[0].timestamp;
+                c = new Crawler( {
+                    'cache': true,
+                    'maxConnections': 100,
+                    'callback': function ( error, result, $ ) {
+                        var cur_time = new Date();
+                        if ( result ) {
+                            delete queued[ result.uri ];
+                        }
 
-				queued += pages.length;
+                        /*
+                        if ( debugging ) {
+                            console.log( worker.id, result ? result.uri : result, cur_time - start );
+                        }
+                        */
 
-				pages.forEach( function( page ) {
-					var delay = page.timestamp - last_timestamp;
-					if ( !delay || delay < 0 ) {
-						delay = 0;
-					}
+                        if ( error ) {
+                            console.log( worker.id, 'error', error, result );
+                        } else if ( $ ) {
+                            $( 'script[src]' )
+                                .each( function ( index, el ) {
+                                    var $el = $( el ),
+                                        src = $el.attr( 'src' );
+                                    if ( src ) {
+                                        queue( $el.attr( 'src' ) );
+                                    }
+                                } );
 
-					if ( delay > 3600000 ) {
-						delay = 3600000;
-					}
+                            $( 'link[href]' )
+                                .each( function ( index, el ) {
+                                    var $el = $( el ),
+                                        type = $el.attr( 'type' ),
+                                        media = $el.attr( 'media' ),
+                                        rel = $el.attr( 'rel' );
 
-					setTimeout( function( ) {
-						queued -= 1;
+                                    if ( type === 'text/css' ) {
+                                        if ( !media || media === 'all' || media === 'screen' ) {
+                                            queue( $el.attr( 'href' ) );
+                                        }
+                                    } else if ( [ 'icon', 'apple-touch-icon' ].indexOf( rel ) !== -1 ) {
+                                        queue( $el.attr( 'href' ) );
+                                    }
+                                } );
 
-						console.log( worker.id, {
-							'queue' : page.page_url,
-							'left' : queued,
-							'delay' : delay
-						} );
-						queue( page.page_url );
-					}, delay * 1000 );
-				} );
+                            $( 'img[src]' )
+                                .each( function ( index, el ) {
+                                    var $el = $( el ),
+                                        src = $el.attr( 'src' );
 
-				console.log( worker.id, 'queued: ' + queued );
-			}
-		} );
-	}
+                                    if ( src ) {
+                                        queue( $el.attr( 'src' ) );
+                                    }
+                                } );
+
+                            if ( queued === 0 ) {
+                                process.send( 'next' );
+                            }
+                        } else if ( ( ( result.headers && result.headers[ 'content-type' ] === 'text/css' ) || ( /\.css/ )
+                            .test( result.uri ) ) && result.body ) {
+                            var body = result.body,
+                                oldLength;
+
+                            while ( oldLength !== body.length ) {
+                                if ( !body ) {
+                                    break;
+                                }
+                                oldLength = body.length;
+
+                                var idx = body.indexOf( '/*' );
+                                if ( idx !== -1 ) {
+                                    var idx2 = body.indexOf( '*/', idx );
+                                    if ( idx2 !== -1 ) {
+                                        body = body.substr( 0, idx ) + body.substr( idx2 + 1 );
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            var matches = body.match( /url\(['"]?[^)'"]+['"]?\)/g );
+                            if ( matches ) {
+                                var relative_url = result.uri.replace( /\/[^\/]+$/, '' ) + '/',
+                                    base_url = result.request.uri.protocol + '//' + result.request.uri.host + ( result.request.uri.port != 80 ? ':' + result.request.uri.port : '' ) + '/';
+
+                                matches.forEach( function ( url ) {
+                                    url = url.substr( 4, url.length - 1 - 4 );
+                                    if ( /^['"]/.test( url ) ) {
+                                        url = url.substr( 1 );
+                                    }
+                                    if ( /['"]$/.test( url ) ) {
+                                        url = url.substr( 0, url.length - 1 );
+                                    }
+
+                                    if ( url.substr( 0, 2 ) === '//' ) {
+                                        url = result.request.uri.protocol + url;
+                                    } else if ( url.substr( 0, 1 ) === '/' ) {
+                                        url = base_url + url;
+                                    } else if ( url.substr( 0, 4 ) !== 'http' ) {
+                                        url = relative_url + url;
+                                    }
+
+                                    queue( url );
+                                } );
+                            }
+                        } else if ( result.headers && ( result.headers[ 'content-type' ] === 'application/javascript' || result.headers[ 'content-type' ] === 'application/x-javascript' ) ) {
+                            // console.log( worker.id, result.uri, 'is a js-file' );
+                        } else if ( result.headers && /image\/[a-z]+/.test( result.headers[ 'content-type' ] || '' ) ) {
+                            // console.log( worker.id, result.uri, 'is a image-file' );
+                        } else {
+                            // console.log( worker.id, result.uri );
+                        }
+
+                        if ( Object.keys( queued )
+                            .length === 0 ) {
+                            loadNext();
+                        }
+                    }
+                } );
+                loadNext();
+            };
+
+        process.on( 'message', function ( msg ) {
+            if ( msg === 'ready' ) {
+                for( var i = 0; i < 1000; i += 1 ) {
+                    process.send( 'next' );
+                }
+            } else {
+                console.log( worker.id, 'got new session to work on' );
+                var pages = [],
+                    last_timestamp = msg.pages[ 0 ].timestamp;
+
+                msg.pages.forEach( function ( page, idx ) {
+                    var delay = page.timestamp - last_timestamp;
+                    if ( !delay || delay < 0 ) {
+                        delay = 0;
+                    }
+
+                    if ( delay > 3600 ) {
+                        delay = 3600;
+                    }
+
+                    var data = {
+                        'delay': delay,
+                        'url': page.page_url
+                    };
+
+                    pages.push( data );
+
+                    // console.log( worker.id, data );
+
+                    last_timestamp = page.timestamp;
+                } );
+
+                console.log( worker.id, 'queued: ' + pages.length );
+
+                runCrawler( pages );
+            }
+        } );
+    }
 } )();
