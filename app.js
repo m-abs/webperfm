@@ -28,8 +28,7 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
         debugging = true;
 
     if ( cluster.isMaster ) {
-        var
-        nconf = require( 'nconf' ),
+        var nconf = require( 'nconf' ),
             mysql = require( 'mysql' ),
             sessions = {},
             lastSession,
@@ -53,22 +52,22 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 
         var workerRequestNewSession = function ( msg ) {
             if ( msg === 'next' ) {
-                console.log( this.id, 'requested new session to work with' );
-
                 var currentSessionId,
                     currentSession;
-                if ( !lastSession ) {
-                    currentSessionId = Object.keys( sessions )[ 0 ];
-                } else {
-                    var session_ids = Object.keys( sessions ),
-                        idx = session_ids.indexOf( lastSession ) + 1;
+                ( function () {
+                    if ( !lastSession ) {
+                        currentSessionId = Object.keys( sessions )[ 0 ];
+                    } else {
+                        var session_ids = Object.keys( sessions ),
+                            idx = session_ids.indexOf( lastSession ) + 1;
 
-                    if ( idx >= session_ids.length ) {
-                        idx = 0;
+                        if ( idx >= session_ids.length ) {
+                            idx = 0;
+                        }
+
+                        currentSessionId = session_ids[ idx ];
                     }
-
-                    currentSessionId = session_ids[ idx ];
-                }
+                } )();
 
                 currentSession = sessions[ currentSessionId ];
 
@@ -78,14 +77,16 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 
                 this.reruns += 1;
 
-                console.log( this.id, this.reruns );
+                if ( this.reruns < 1100 ) {
+                    console.log( 'Master: - Worker: ' + this.id + ' requested new session to work with. Session: ' + Math.floor( this.reruns ) );
 
-                if ( this.reruns < 10000 ) {
                     this.send( currentSession );
 
                     lastSession = currentSessionId;
                 } else {
-                    this.exit( );
+                    console.log( 'Master: - Worker: ' + this.id + ' requested new session to work with. But it have had too many sessions' );
+
+                    this.kill();
                 }
             }
         };
@@ -94,7 +95,7 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
             var res = [],
                 len = require( 'os' )
                     .cpus()
-                    .length * 10,
+                    .length,
                 i = 0;
             for ( ; i < len; i += 1 ) {
                 var worker = cluster.fork();
@@ -166,7 +167,7 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 
                         if ( !page ) {
                             process.send( 'next' );
-                            c.pool.destroy( );
+                            c.pool.destroy();
                             c = undefined;
                             Crawler = undefined;
                         } else {
@@ -289,6 +290,7 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
                                     if ( /^['"]/.test( url ) ) {
                                         url = url.substr( 1 );
                                     }
+
                                     if ( /['"]$/.test( url ) ) {
                                         url = url.substr( 0, url.length - 1 );
                                     }
@@ -323,11 +325,10 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 
         process.on( 'message', function ( msg ) {
             if ( msg === 'ready' ) {
-                for( var i = 0; i < 1000; i += 1 ) {
+                for ( var i = 0; i < 100; i += 1 ) {
                     process.send( 'next' );
                 }
             } else {
-                console.log( worker.id, 'got new session to work on' );
                 var pages = [],
                     last_timestamp = msg.pages[ 0 ].timestamp;
 
@@ -348,12 +349,10 @@ along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 
                     pages.push( data );
 
-                    // console.log( worker.id, data );
-
                     last_timestamp = page.timestamp;
                 } );
 
-                console.log( worker.id, 'queued: ' + pages.length );
+                console.log( 'Worker: ' + worker.id + ' got new session to work on. Queue size: ' + pages.length );
 
                 runCrawler( pages );
             }
