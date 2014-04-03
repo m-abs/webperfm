@@ -158,14 +158,28 @@ along with webprefm.  If not, see <http://www.gnu.org/licenses/>.
         } );
     } else if ( cluster.isWorker ) {
         var worker = cluster.worker,
-            SessionRunner = require( './sessionrunner' ).SessionRunner,
-            runCrawler = function ( pages ) {
-                var runner = new SessionRunner( );
-                runner.runSession( pages );
+            SessionRunner = require( './sessionrunner' )
+                .SessionRunner,
+            runners = ( function () {
+                var numRunners = 100,
+                    res = [],
+                    i = 0;
 
-                runner.on( 'fininshed', function( ) {
-                    process.send( 'next' );
-                } );
+                for ( ; i < numRunners; i += 1 ) {
+                    res.push( new SessionRunner( i ) );
+                }
+
+                return res;
+            } )(),
+            runCrawler = function ( pages ) {
+                var availableRunners = runners.filter( function ( runner ) {
+                    return runner.available();
+                } ),
+                    runner = availableRunners[ Math.floor( Math.random() * availableRunners.length ) ];
+
+                if ( runner ) {
+                    runner.runSession( pages );
+                }
             };
 
         process.on( 'message', function ( msg ) {

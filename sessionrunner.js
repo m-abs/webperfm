@@ -180,16 +180,25 @@
     };
 
     SessionRunner.prototype.runSession = function ( pages ) {
-        this.pages = pages || [];
+        if ( this.available ) {
+            this.pages = pages || [];
 
-        // Clear cache and queue
-        this.start = new Date();
-        this.queued = {};
-        this.doneUrls = {};
-        this.c.cache = {};
+            // Clear cache and queue
+            this.start = new Date();
+            this.queued = {};
+            this.doneUrls = {};
+            this.c.cache = {};
 
-        // Start loading
-        this.loadNext();
+            // Start loading
+            this.loadNext();
+        } else {
+            // TODO:
+            throw 'Fuck';
+        }
+    };
+
+    SessionRunner.prototype.available = function () {
+        return !this.pages.length;
     };
 
     exports.SessionRunner = SessionRunner;
