@@ -45,8 +45,7 @@ along with webprefm.  If not, see <http://www.gnu.org/licenses/>.
             'dbport': 3306
         } );
 
-        var required_config = [ 'dbname', 'dbusername', 'dbpassword', 'dbhostname' ];
-        required_config.forEach( function ( value ) {
+        [ 'dbname', 'dbusername', 'dbpassword', 'dbhostname' ].forEach( function ( value ) {
             console.assert( nconf.get( value ), value + ' is missing from the config, either add it to config.json, the environment or the argv' );
         } );
 
@@ -171,10 +170,11 @@ along with webprefm.  If not, see <http://www.gnu.org/licenses/>.
 
                 return res;
             } )(),
+            runnerFilterAvailable = function ( runner ) {
+                return runner.available();
+            },
             runCrawler = function ( pages ) {
-                var availableRunners = runners.filter( function ( runner ) {
-                    return runner.available();
-                } ),
+                var availableRunners = runners.filter( runnerFilterAvailable ),
                     runner = availableRunners[ Math.floor( Math.random() * availableRunners.length ) ];
 
                 if ( runner ) {
