@@ -115,7 +115,7 @@
                 'method' : 'GET',
                 'headers' : headers
             }, function( res ) {
-                var cacheControl = res.headers[ 'cache-control' ];
+                var cacheControl = res.headers[ 'cache-control' ] || '';
 
                 urlData.hits += 1;
                 if ( res.statusCode === 304 ) {

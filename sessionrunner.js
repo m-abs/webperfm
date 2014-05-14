@@ -16,7 +16,7 @@
                 var $el = tmp$( el ),
                     src = $el.attr( 'src' );
                 if ( src ) {
-                    that.queue( $el.attr( 'src' ) );
+                    that.queue( src );
                 }
             },
             linkHrefHandler = function ( index, el ) {
@@ -38,7 +38,7 @@
                     src = $el.attr( 'src' );
 
                 if ( src ) {
-                    that.queue( $el.attr( 'src' ) );
+                    that.queue( src );
                 }
             },
             cssUrlProcesser = function ( body, result ) {
@@ -173,24 +173,25 @@
         }
 
         // console.log( url );
-        this.c.queue( url );
+        that.c.queue( url );
 
-        this.doneUrls[ url ] = true;
-        this.queued[ url ] = true;
+        that.doneUrls[ url ] = true;
+        that.queued[ url ] = true;
     };
 
     SessionRunner.prototype.runSession = function ( pages ) {
-        if ( this.available ) {
-            this.pages = pages || [];
+        var that = this;
+        if ( that.available ) {
+            that.pages = pages || [];
 
             // Clear cache and queue
-            this.start = new Date();
-            this.queued = {};
-            this.doneUrls = {};
-            this.c.cache = {};
+            that.start = new Date();
+            that.queued = {};
+            that.doneUrls = {};
+            that.c.cache = {};
 
             // Start loading
-            this.loadNext();
+            that.loadNext();
         } else {
             // TODO:
             throw 'Fuck';
