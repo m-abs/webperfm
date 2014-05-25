@@ -116,7 +116,6 @@ along with webprefm.  If not, see <http://www.gnu.org/licenses/>.
 
         connection.connect( function ( status ) {
             if ( status ) {
-                console.log( status );
                 connection.end();
                 process.exit( 255 );
 

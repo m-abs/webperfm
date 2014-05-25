@@ -5,7 +5,7 @@
     var util = require( "util" ),
         events = require( "events" ),
         cluster = require( 'cluster' ),
-        NodeCrawler = require( 'crawler' )
+        Crawler = require( './crawler' )
             .Crawler;
 
     function SessionRunner() {
@@ -16,7 +16,7 @@
                 var $el = tmp$( el ),
                     src = $el.attr( 'src' );
                 if ( src ) {
-                    that.queue( src );
+                    that.c.queue( src );
                 }
             },
             linkHrefHandler = function ( index, el ) {
@@ -27,10 +27,10 @@
 
                 if ( type === 'text/css' ) {
                     if ( !media || media === 'all' || media === 'screen' ) {
-                        that.queue( $el.attr( 'href' ) );
+                        that.c.queue( $el.attr( 'href' ) );
                     }
                 } else if ( [ 'icon', 'apple-touch-icon' ].indexOf( rel ) !== -1 ) {
-                    that.queue( $el.attr( 'href' ) );
+                    that.c.queue( $el.attr( 'href' ) );
                 }
             },
             imgSrcHandler = function ( index, el ) {
@@ -38,14 +38,15 @@
                     src = $el.attr( 'src' );
 
                 if ( src ) {
-                    that.queue( src );
+                    that.c.queue( src );
                 }
             },
             cssUrlProcesser = function ( body, result ) {
                 var matches = body.match( /url\(['"]?[^)'"]+['"]?\)/g );
                 if ( matches ) {
                     var relative_url = result.uri.replace( /\/[^\/]+$/, '' ) + '/',
-                        base_url = result.request.uri.protocol + '//' + result.request.uri.host + ( result.request.uri.port != 80 ? ':' + result.request.uri.port : '' ) + '/';
+                        base_url = result.request.uri.protocol + '//' + result.request.uri.host + ( result.request.uri.port != 80 ? ':' + result.request.uri.port : '' ) + '/',
+                        urls = [];
 
                     matches.forEach( function ( url ) {
                         url = url.substr( 4, url.length - 1 - 4 );
@@ -65,12 +66,14 @@
                             url = relative_url + url;
                         }
 
-                        that.queue( url );
+                        urls.push( url );
                     } );
+
+                    that.c.queue( urls );
                 }
             };
 
-        that.c = new NodeCrawler( {
+        that.c = new Crawler( {
             'cache': true,
             'maxConnections': 100,
             'callback': function ( error, result, $ ) {
@@ -174,6 +177,7 @@
 
         // console.log( url );
         that.c.queue( url );
+        that.c.next( );
 
         that.doneUrls[ url ] = true;
         that.queued[ url ] = true;
@@ -188,7 +192,7 @@
             that.start = new Date();
             that.queued = {};
             that.doneUrls = {};
-            that.c.cache = {};
+            that.c.reset( );
 
             // Start loading
             that.loadNext();

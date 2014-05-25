@@ -6,7 +6,11 @@
     var _ = require( 'underscore' ),
         cheerio = require( 'cheerio' );
 
-    function Crawler( urls ) {
+    function Crawler( _settings ) {
+        var settings = _.extend( {
+            'urls' : []
+        }, _settings );
+
         this.protocol = {
             'http' : require( 'http' ),
             'https' : require( 'https' )
@@ -14,8 +18,12 @@
 
         this.reset();
 
-        if ( urls ) {
-            this.queue( urls );
+        if ( settings.urls ) {
+            this.queue( settings.urls );
+        }
+
+        if ( typeof settings.callback === 'function' ) {
+            this.callback = settings.callback;
         }
     }
 
@@ -27,15 +35,20 @@
         'etags' : {}
     };
 
+    Crawler.prototype.callback = function( ) {
+        // Override this
+    };
+
     Crawler.prototype.queued = [];
 
     Crawler.prototype.queue = function( urls ) {
+        var that = this;
         if ( _.isArray( urls ) ) {
             urls.forEach( function( url ) {
-                this.queued.push( url );
+                that.queued.push( url );
             } );
         } else if ( _.isString( urls ) ) {
-            this.queued.push( urls );
+            that.queued.push( urls );
         } else {
             throw new Exception( 'url is incorrect type' );
         }
@@ -50,24 +63,41 @@
         this.queued = [];
     };
 
-    Crawler.prototype.afterRequest = function( body, headers, statusCode ) {
+    Crawler.prototype.afterRequest = function( error, result, body ) {
+        var $body;
 
+        result.body = '' + ( body || '' );
+
+        if ( result.headers[ 'content-type' ].match( /text\/html|application\/xhtml\+xml/ ) ) {
+            $body = cheerio.load( body || '' );
+        }
+
+        this.callback( error, result, $body );
+
+        this.next();
+    };
+
+    Crawler.prototype.next = function( ) {
+        var url = this.queued.pop( );
+        if ( url ) {
+            this.makeRequest( url );
+        }
     };
 
     Crawler.prototype.makeRequest = function( url ) {
         var uriData = url.match( /^(http[s]?):\/\/([^/]+)(\/.+)?/ ),
             that = this;
         if ( uriData ) {
-            var protocol = uriData[0],
-                hostname = uriData[1],
-                path = uriData[2] || '/',
+            var protocol = uriData[1],
+                hostname = uriData[2],
+                path = uriData[3] || '/',
                 port = ( function( hostname ) {
                     var hostnameData = hostname.match( /([^:]+)([:]\d+)?/ ),
                         port = 80;
 
-                    if ( hostnameData[1] ) {
-                        port = hostnameData[1];
-                    } else if ( prototol === 'http' ) {
+                    if ( hostnameData[2] ) {
+                        port = hostnameData[2];
+                    } else if ( protocol === 'http' ) {
                         port = 80;
                     } else {
                         port = 443;
@@ -75,29 +105,47 @@
 
                     return port;
                 } )( hostname ),
-                urlData = that.cache[ url ],
+                urlData = that.cache.urls[ url ],
                 curTimestamp = (new Date( ))/1.0,
                 req,
-                headers = {};
+                start = Date.now( ),
+                result = {
+                    'start' : start,
+                    'uri': url,
+                    'request': {
+                        'uri' : {
+                            'protocol': protocol,
+                            'host': hostname,
+                            'port': port,
+                            'path': path,
+                            'url': url
+                        }
+                    },
+                    'header': {}
+                },
+                reqHeaders = {};
             if ( urlData ) {
                 if ( that.useCache ) {
                     if ( urlData.expires !== undefined && urlData.expires < curTimestamp ) { // Doesn't handle must-revalidate
                         urlData.hits += 1;
                         urlData.cached += 1;
-                        callback.call( undefined, urlData.body, {}, 200 );
+                        result.headers.statusCode = 304;
+                        result.end = Date.now( );
+                        result.duration = result.end - start;
+                        this.afterRequest( false, result, urlData.body );
                         return;
                     }
 
                     if ( urlData.expires_str !== undefined ) {
-                        headers[ 'If-Modified-Since' ] = urlData.expires_str;
+                       reqHeaders[ 'If-Modified-Since' ] = urlData.expires_str;
                     }
 
                     if ( urlData.etag !== undefined ) {
-                        headers[ 'If-None-Match' ] = urlData.etag;
+                        reqHeaders[ 'If-None-Match' ] = urlData.etag;
                     }
                 }
             } else {
-                urls[ url ] = urlData = {
+                urlData = {
                     'url' : url,
                     'hits' : 0,
                     'cached' : 0,
@@ -106,22 +154,29 @@
                     'cache-control' : null,
                     'content-length' : null
                 };
+                that.cache.urls[ url ] = urlData;
             }
 
-            req = that.protocol[ protocol ].request( {
+            var reqOptions = {
                 'hostname' : hostname,
                 'port' : port,
                 'path' : path,
                 'method' : 'GET',
-                'headers' : headers
-            }, function( res ) {
+                'headers' : reqHeaders
+            };
+
+            req = that.protocol[ protocol ].request( reqOptions , function( res ) {
+                result.headers = _.extend( {}, res.headers );
+                result.end = Date.now( );
+                result.duration = result.end - start;
+
                 var cacheControl = res.headers[ 'cache-control' ] || '';
 
                 urlData.hits += 1;
                 if ( res.statusCode === 304 ) {
                     urlData.cached += 1;
 
-                    that.afterRequest( urlData.body, res.headers, res.statusCode );
+                    that.afterRequest( false, result, urlData.body );
                     return;
                 }
 
@@ -146,20 +201,20 @@
                         urlData[ 'cache-control' ] = cacheControl;
                         if ( res.headers.etag ) {
                             urlData.etag = res.headers.etag;
-                            etags[ res.headers.etag ] = urlData;
+                            that.cache.etags[ res.headers.etag ] = urlData;
                         } else {
                             urlData.etag = undefined;
                         }
                     }
 
-                    that.afterRequest( urlData.body, res.headers, res.statusCode );
+                    that.afterRequest( false, result, urlData.body );
                 } );
             } );
 
             req.on( 'error', function( e ) {
                 urlData.errors += 1;
-            });
-            req.end();
+            } );
+            req.end( );
         } else {
             this.next( );
         }

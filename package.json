@@ -1,14 +1,15 @@
 {
-	"name": "webperfm",
-	"version": "0.0.1",
-	"private": true,
-	"scripts": {
-		"start": "node app"
-	},
-	"dependencies": {
-		"crawler" : "*",
-		"nconf" : "*",
-		"mysql" : "*"
-	}
+  "name": "webperfm",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node app"
+  },
+  "dependencies": {
+    "crawler": "*",
+    "nconf": "*",
+    "mysql": "*",
+    "underscore": "^1.6.0",
+    "cheerio": "^0.16.0"
+  }
 }
-
